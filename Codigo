@@ -1,1 +1,137 @@
+#include <stdio.h>
+#include <stdlib.h> //ordena arreglos
+#include <math.h> //libreria raiz 
+#include <time.h>
+
+#define MAX_DATOS 10000
+#define K 5
+#define PORCENTAJE_ENTRENAMIENTO 80
+
+typedef struct {
+    double x;
+    double y;
+    int clase;
+    double distancia;
+} Punto; //todas esas carcteristicas las tiene punto 
+
+double distanciaEuclidiana(Punto a, Punto b) {
+    return sqrt((a.x - b.x)*(a.x - b.x) + (a.y - b.y)*(a.y - b.y)); //usamos solo x y
+}
+
+int compararDistancia(const void* a, const void* b) {
+    double d1 = ((Punto*)a)->distancia; //tomar el punto a y medir su distancia 
+    double d2 = ((Punto*)b)->distancia;
+    if (d1 < d2) return -1; // si a <b devuelve -1 pon a antes que b 
+    else if (d1 > d2) return 1;
+    else return 0; // si tienen la misma distancia da igual el orden 
+}
+
+int predecirKNN(Punto entrenamiento[], int nEntrenamiento, Punto prueba) {
+    for (int i = 0; i < nEntrenamiento; i++) { // esta calculando que tan lejos esta cada punto del entrenamiento respecto al conjunto de prueba 
+        entrenamiento[i].distancia = distanciaEuclidiana(entrenamiento[i], prueba); //se guarda en distancia 
+    }
+    qsort(entrenamiento, nEntrenamiento, sizeof(Punto), compararDistancia); // ordena el arreglo por distancia de menor a mayor 
+
+    int conteo[2] = {0}; //cuenta las clases de los k mas cercanos 
+    for (int i = 0; i < K; i++) {
+        conteo[entrenamiento[i].clase]++;
+    }
+    return (conteo[1] > conteo[0]) ? 1 : 0; // decide la clase con mas votos, si hay mas en clase 1 es =1 sino =0 
+}
+
+
+
+void obtenerRectaMinimosCuadrados(Punto datos[], int n, double* m, double* b) { //obtener recta que mejor ajuste 
+    double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+
+    for (int i = 0; i < n; i++) { // calcula las sumas con for recorre todos los puntos para aplicar minimos cuadrados 
+        sumX += datos[i].x; //suma todas las x 
+        sumY += datos[i].y; // suma las y
+        sumXY += datos[i].x * datos[i].y; //suma xy
+        sumX2 += datos[i].x * datos[i].x; //suma x al cuadrado
+    }
+
+    *m = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX); // formula para calcular la pendiente 
+    *b = (sumY - (*m) * sumX) / n; // ordenada al origen teniendo todo ya podemos hacer la ecuacion 
+}
+
+double distanciaPuntoARecta(Punto p, double m, double b) { // calcula la distancia punto a recta 
+    return fabs(m * p.x - p.y + b) / sqrt(m * m + 1);
+}
+
+int predecirPorRecta(Punto p, double m0, double b0, double m1, double b1) { // predice de acuerdo a que recta esta mas cerca 
+    double d0 = distanciaPuntoARecta(p, m0, b0); 
+    double d1 = distanciaPuntoARecta(p, m1, b1);
+    return (d1 < d0) ? 1 : 0;
+}
+
+int main() {
+    Punto datos[MAX_DATOS];
+    Punto entrenamiento[MAX_DATOS];
+    Punto prueba[MAX_DATOS];
+    Punto clase0[MAX_DATOS], clase1[MAX_DATOS];
+    int n = 0, nEntrenamiento = 0, nPrueba = 0;
+    int nClase0 = 0, nClase1 = 0;
+
+    FILE* archivo = fopen("datos.txt", "r");
+    if (!archivo) {
+        printf("No se pudo abrir 'datos.txt'\n");
+        return 1;
+    }
+
+    while (fscanf(archivo, "%lf %lf %d", &datos[n].x, &datos[n].y, &datos[n].clase) == 3) {
+        n++;
+        if (n >= MAX_DATOS) break;
+    }
+    fclose(archivo);
+
+    srand(time(NULL));
+    for (int i = 0; i < n; i++) {
+        if ((rand() % 100) < PORCENTAJE_ENTRENAMIENTO) {
+            entrenamiento[nEntrenamiento++] = datos[i];
+            if (datos[i].clase == 0)
+                clase0[nClase0++] = datos[i];
+            else
+                clase1[nClase1++] = datos[i];
+        } else {
+            prueba[nPrueba++] = datos[i];
+        }
+    }
+
+    printf("Total datos: %d\n", n);
+    printf("Entrenamiento: %d\n", nEntrenamiento);
+    printf("Prueba: %d\n\n", nPrueba);
+
+    // ----------------- KNN ------------------
+    int aciertosKNN = 0;
+    for (int i = 0; i < nPrueba; i++) {
+        int pred = predecirKNN(entrenamiento, nEntrenamiento, prueba[i]);
+        if (pred == prueba[i].clase)
+            aciertosKNN++;
+    }
+
+    double accKNN = (double)aciertosKNN / nPrueba * 100.0;
+    printf(" Accuracy KNN (K=%d): %.2lf%%\n", K, accKNN);
+
+    // ----------------- Recta ------------------
+    double m0, b0, m1, b1;
+    obtenerRectaMinimosCuadrados(clase0, nClase0, &m0, &b0);
+    obtenerRectaMinimosCuadrados(clase1, nClase1, &m1, &b1);
+
+    int aciertosRecta = 0;
+    for (int i = 0; i < nPrueba; i++) {
+        int pred = predecirPorRecta(prueba[i], m0, b0, m1, b1);
+        if (pred == prueba[i].clase)
+            aciertosRecta++;
+    }
+
+    double accRecta = (double)aciertosRecta / nPrueba * 100.0;
+    printf(" Accuracy por distancia a la recta: %.2lf%%\n", accRecta);
+
+    // Mostrar ecuaciones de las rectas
+    printf("\nRecta clase 0: y = %.4lfx + %.4lf\n", m0, b0);
+    printf("Recta clase 1: y = %.4lfx + %.4lf\n", m1, b1);
+
+    return 0;
+}
 
